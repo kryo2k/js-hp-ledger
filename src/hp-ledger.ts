@@ -1,18 +1,17 @@
 import { BigNumber } from 'bignumber.js';
 
-export type AnyNumericInput = number|string|BigNumber;
-export type AnyDateInput    = number|string|Date;
+export type AnyDateInput = number|string|Date;
 
 const
 DEFAULT_VERIFY_TIMESTAMP = true,
 DEFAULT_ALLOW_NEG_BALANCE = false,
 DEBUG = false;
 
-function inputBigNumber(num : AnyNumericInput) : BigNumber {
+function inputBigNumber(num : BigNumber.Value) : BigNumber {
   return new BigNumber(num);
 };
 
-function inputNumber(num : AnyNumericInput) : number {
+function inputNumber(num : BigNumber.Value) : number {
   return new BigNumber(num).toNumber();
 };
 
@@ -36,6 +35,9 @@ function inputDate(date : AnyDateInput) : Date {
   throw new TypeError('Invalid type of date input was provided.');
 };
 
+/**
+* A basic ledger entry (readonly)
+*/
 export interface ILedgerEntry {
   readonly timestamp : string;
   readonly previous  : number;
@@ -43,7 +45,10 @@ export interface ILedgerEntry {
   readonly current   : number;
 };
 
-export function validateEntry (entry : ILedgerEntry, previousBalance : AnyNumericInput = 0, previousTimestamp ?: AnyDateInput, verifyTimestamp : boolean = DEFAULT_VERIFY_TIMESTAMP) : boolean {
+/**
+* Validation function for checking compatability of an entry with previous ledger state.
+*/
+export function validateEntry (entry : ILedgerEntry, previousBalance : BigNumber.Value = 0, previousTimestamp ?: AnyDateInput, verifyTimestamp : boolean = DEFAULT_VERIFY_TIMESTAMP) : boolean {
 
   if(typeof previousTimestamp === 'undefined' && verifyTimestamp)
     throw new TypeError('Previous timestamp was not provided, and is required.');
@@ -76,10 +81,13 @@ export class LedgerEntry implements ILedgerEntry {
   readonly change    : number;
   readonly current   : number;
 
+  /**
+  * Construct a new ledger entry object
+  */
   constructor(
-    previous : AnyNumericInput,
-    change: AnyNumericInput,
-    current: AnyNumericInput,
+    previous : BigNumber.Value,
+    change: BigNumber.Value,
+    current: BigNumber.Value,
     timestamp: AnyDateInput = new Date()
   ) {
     this.previous = inputNumber(previous);
@@ -89,8 +97,14 @@ export class LedgerEntry implements ILedgerEntry {
   }
 };
 
+/**
+* Main ledger class
+*/
 export class Ledger {
 
+  /**
+  * Construct a new ledger object
+  */
   constructor (
     public readonly entries : ReadonlyArray<ILedgerEntry> = [],
     public readonly initialBalance : number = 0,
@@ -103,15 +117,24 @@ export class Ledger {
       throw new Error(`Entry validation failed at cursor index (${validation}).`);
   }
 
+  /**
+  * The number of entries in this ledger.
+  */
   get length () : number {
     return this.entries.length;
   }
 
+  /**
+  * The last entry or undefined if no change has been made.
+  */
   get lastEntry () : ILedgerEntry|undefined {
     const entries = this.entries;
     return entries[entries.length - 1];
   }
 
+  /**
+  * The last balance since construction
+  */
   get lastBalance () : number {
     const last = this.lastEntry;
 
@@ -121,6 +144,9 @@ export class Ledger {
     return last.current;
   }
 
+  /**
+  * The last change amount or ZERO if no change has been made.
+  */
   get lastChange () : number {
     const last = this.lastEntry;
 
@@ -130,6 +156,9 @@ export class Ledger {
     return last.change;
   }
 
+  /**
+  * Returns the last timestamp from entries or initial timestamp from construction.
+  */
   get lastTimestamp () : string|undefined {
     const last = this.lastEntry;
 
@@ -140,34 +169,50 @@ export class Ledger {
 
   }
 
-  get firstEntry () : ILedgerEntry|undefined {
-    return this.entries[0];
-  }
-
-  change(change : AnyNumericInput, allowNegativeBalance ?: boolean, timestamp ?: AnyDateInput) : Ledger {
+  /**
+  * Perform a change to the current balance. This change amount is added to the last balance and a new entry is created.
+  * Returns a modified ledger containing the new entry.
+  */
+  change(change : BigNumber.Value, allowNegativeBalance ?: boolean, timestamp ?: AnyDateInput) : Ledger {
     change = inputBigNumber(change);
 
     const
     previous = inputBigNumber(this.lastBalance),
     current = previous.plus(change);
 
-    Ledger.testNegative(current, allowNegativeBalance);
+    this.assertNotNegative(current, allowNegativeBalance);
 
-    return new Ledger(this.entries.concat([ new LedgerEntry(previous, change, current, timestamp) ]), this.initialBalance);
+    return new Ledger(
+      this.entries.concat([ new LedgerEntry(previous, change, current, timestamp) ]),
+      this.initialBalance,
+      this.initialTimestamp,
+      this.verifyTimestamp
+    );
   }
 
-  set(current : AnyNumericInput, allowNegativeBalance ?: boolean, timestamp ?: AnyDateInput) : Ledger {
+  /**
+  * Sets the current balance to the amount provided. Returns a modified ledger containing the new entry.
+  */
+  set(current : BigNumber.Value, allowNegativeBalance ?: boolean, timestamp ?: AnyDateInput) : Ledger {
     current = inputBigNumber(current);
 
     const
     previous = this.lastBalance,
     change   = current.minus(previous);
 
-    Ledger.testNegative(current, allowNegativeBalance);
+    this.assertNotNegative(current, allowNegativeBalance);
 
-    return new Ledger(this.entries.concat([ new LedgerEntry(previous, change, current, timestamp) ]), this.initialBalance);
+    return new Ledger(
+      this.entries.concat([ new LedgerEntry(previous, change, current, timestamp) ]),
+      this.initialBalance,
+      this.initialTimestamp,
+      this.verifyTimestamp
+    );
   }
 
+  /**
+  * Validates the current state of the ledger. Returns TRUE if state is valid, or returns the entry index that broke validity.
+  */
   validate (startAt : number = 0, previousBalance : number = this.initialBalance, previousTimestamp : string|undefined = this.initialTimestamp, verifyTimestamp : boolean = this.verifyTimestamp) : number|true {
     const entries = this.entries, length = entries.length;
     if(length === 0)
@@ -202,7 +247,10 @@ export class Ledger {
     return true;
   }
 
-  protected static testNegative(current : AnyNumericInput, allowNegative : boolean = DEFAULT_ALLOW_NEG_BALANCE) : void {
+  /**
+  * Asserts that a number provided is not negative unless allowed. Also does checks to see if is NaN or not finite.
+  */
+  protected assertNotNegative(current : BigNumber.Value, allowNegative : boolean = DEFAULT_ALLOW_NEG_BALANCE) : void {
     current = inputBigNumber(current);
 
     if(current.isNaN() || !current.isFinite())

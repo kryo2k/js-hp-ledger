@@ -20,7 +20,7 @@ function inputDate(date) {
         return new Date(parsed);
     }
     if (typeof date === 'number') {
-        if (isNaN(date) || isFinite(date))
+        if (isNaN(date) || !isFinite(date))
             throw new SyntaxError('Date number format is not valid.');
         return new Date(date);
     }
@@ -28,6 +28,9 @@ function inputDate(date) {
 }
 ;
 ;
+/**
+* Validation function for checking compatability of an entry with previous ledger state.
+*/
 function validateEntry(entry, previousBalance = 0, previousTimestamp, verifyTimestamp = DEFAULT_VERIFY_TIMESTAMP) {
     if (typeof previousTimestamp === 'undefined' && verifyTimestamp)
         throw new TypeError('Previous timestamp was not provided, and is required.');
@@ -49,6 +52,9 @@ function validateEntry(entry, previousBalance = 0, previousTimestamp, verifyTime
 exports.validateEntry = validateEntry;
 ;
 class LedgerEntry {
+    /**
+    * Construct a new ledger entry object
+    */
     constructor(previous, change, current, timestamp = new Date()) {
         this.previous = inputNumber(previous);
         this.change = inputNumber(change);
@@ -58,7 +64,13 @@ class LedgerEntry {
 }
 exports.LedgerEntry = LedgerEntry;
 ;
+/**
+* Main ledger class
+*/
 class Ledger {
+    /**
+    * Construct a new ledger object
+    */
     constructor(entries = [], initialBalance = 0, initialTimestamp, verifyTimestamp = DEFAULT_VERIFY_TIMESTAMP) {
         this.entries = entries;
         this.initialBalance = initialBalance;
@@ -68,46 +80,68 @@ class Ledger {
         if (typeof validation === 'number')
             throw new Error(`Entry validation failed at cursor index (${validation}).`);
     }
+    /**
+    * The number of entries in this ledger.
+    */
     get length() {
         return this.entries.length;
     }
+    /**
+    * The last entry or undefined if no change has been made.
+    */
     get lastEntry() {
         const entries = this.entries;
         return entries[entries.length - 1];
     }
+    /**
+    * The last balance since construction
+    */
     get lastBalance() {
         const last = this.lastEntry;
         if (typeof last === 'undefined')
             return this.initialBalance;
         return last.current;
     }
+    /**
+    * The last change amount or ZERO if no change has been made.
+    */
     get lastChange() {
         const last = this.lastEntry;
         if (typeof last === 'undefined')
             return 0;
         return last.change;
     }
+    /**
+    * Returns the last timestamp from entries or initial timestamp from construction.
+    */
     get lastTimestamp() {
         const last = this.lastEntry;
         if (typeof last === 'undefined')
             return this.initialTimestamp;
         return last.timestamp;
     }
-    get firstEntry() {
-        return this.entries[0];
-    }
+    /**
+    * Perform a change to the current balance. This change amount is added to the last balance and a new entry is created.
+    * Returns a modified ledger containing the new entry.
+    */
     change(change, allowNegativeBalance, timestamp) {
         change = inputBigNumber(change);
         const previous = inputBigNumber(this.lastBalance), current = previous.plus(change);
-        Ledger.testNegative(current, allowNegativeBalance);
-        return new Ledger(this.entries.concat([new LedgerEntry(previous, change, current, timestamp)]), this.initialBalance);
+        this.assertNotNegative(current, allowNegativeBalance);
+        return new Ledger(this.entries.concat([new LedgerEntry(previous, change, current, timestamp)]), this.initialBalance, this.initialTimestamp, this.verifyTimestamp);
     }
+    /**
+    * Sets the current balance to the amount provided. Returns a modified ledger containing the new entry.
+    */
     set(current, allowNegativeBalance, timestamp) {
         current = inputBigNumber(current);
         const previous = this.lastBalance, change = current.minus(previous);
-        Ledger.testNegative(current, allowNegativeBalance);
-        return new Ledger(this.entries.concat([new LedgerEntry(previous, change, current, timestamp)]), this.initialBalance);
+        this.assertNotNegative(current, allowNegativeBalance);
+        return new Ledger(this.entries.concat([new LedgerEntry(previous, change, current, timestamp)]), this.initialBalance, this.initialTimestamp, this.verifyTimestamp);
     }
+    /**
+    * Validates the current state of the ledger. Returns TRUE if state is valid, or returns the entry index that broke validity.
+    */
     validate(startAt = 0, previousBalance = this.initialBalance, previousTimestamp = this.initialTimestamp, verifyTimestamp = this.verifyTimestamp) {
         const entries = this.entries, length = entries.length;
         if (length === 0)
@@ -134,7 +168,10 @@ class Ledger {
         }
         return true;
     }
-    static testNegative(current, allowNegative = DEFAULT_ALLOW_NEG_BALANCE) {
+    /**
+    * Asserts that a number provided is not negative unless allowed. Also does checks to see if is NaN or not finite.
+    */
+    assertNotNegative(current, allowNegative = DEFAULT_ALLOW_NEG_BALANCE) {
         current = inputBigNumber(current);
         if (current.isNaN() || !current.isFinite())
             throw new RangeError(`Change produces an invalid balance number.`);

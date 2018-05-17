@@ -1,6 +1,6 @@
 {
   "name": "js-hp-ledger",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A typescript ledger library.",
   "main": "npm run start",
   "scripts": {
