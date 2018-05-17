@@ -28,7 +28,7 @@ function inputDate(date : AnyDateInput) : Date {
   }
 
   if(typeof date === 'number') {
-    if(isNaN(date) || isFinite(date))
+    if(isNaN(date) || !isFinite(date))
       throw new SyntaxError('Date number format is not valid.');
     return new Date(date);
   }
